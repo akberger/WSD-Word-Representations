@@ -12,12 +12,12 @@ import numpy as np
 import os
 import sys
 
-def main(indir, outdir, model_dir, clustering='kmeans', n=2):
+def main(indir, outdir, word_list_file, model_dir, clustering='kmeans', n=2, iters=1):
 	files = iter_dir(indir)
-	wev = WordEnvironmentVectors()
+	wev = WordEnvironmentVectors(word_list_file=get_words(word_list_file))
 	print 'Determining vocabulary...'
 	print datetime.now()
-	vocab, sent_count = determine_vocab(files, wev)
+	vocab = determine_vocab(files, wev)
 	wev.vocab = vocab
 
 	print "Creating word sense models from word env vecs..."
@@ -31,7 +31,6 @@ def main(indir, outdir, model_dir, clustering='kmeans', n=2):
 		word_sense_clusters = make_clusters(word_sense_clusters, wev, clustering, n)
 		wev.clear_vectors()
 
-	#print "Writing updated text file with words marked w/ their sense..."
 	output = open(outdir, 'w')
 	print "Relabeling words with their sense..."
 	print datetime.now()
@@ -43,24 +42,28 @@ def main(indir, outdir, model_dir, clustering='kmeans', n=2):
 		for s in sents:
 			word_vecs = wev.get_word_vecs(s)
 			new_sent = determine_sense(s, word_vecs, word_sense_clusters, word_svds)
-
-			"""
-			if model:
-				model.train(new_sent, total_examples=sent_count)
-			else:
-				model = Word2Vec(new_sent, size=200, window=5, min_count=5, workers=3, sg=1)
-			"""
 			output.write(' '.join(new_sent) + '\n')
 
 	print "Creating Word2Vec model..."
 	print datetime.now()
 	model = Word2Vec(LineSentence(outdir), size=200, window=5, min_count=5, workers=3, sg=1)
-
 	model.init_sims(replace=True)
-
 	model.save(model_dir)
-	print "Model saved"
+	print "Initial model saved"
 	print datetime.now()
+	
+	for i in range(iters):
+		print "Iteration {} of model refinement".format(i+1)
+		gold_word_senses = refine_senses(model)
+		refine_model(model, str(i+1))
+
+def get_words(word_list_file):
+	words = []
+		f = open(word_list_file, 'r')
+		for line in f:
+			words.append(line.strip())
+
+	return set(words)
 
 def iter_dir(indir, filetype='.txt'):
 	files = []
@@ -72,8 +75,8 @@ def iter_dir(indir, filetype='.txt'):
 	return files
 
 
-def determine_vocab(files, wev, n=2):
-	total_sentences = 0
+def determine_vocab(files, wev, n=10):
+	#total_sentences = 0
 	vocab = {}
 	stops = wev.stopwords
 	punc = wev.punctuation
@@ -82,18 +85,19 @@ def determine_vocab(files, wev, n=2):
 		f = open(fi)
 		sents = wev.tokenize(wev.get_file_text(f))
 		for s in sents:
-			total_sentences += 1
+			#total_sentences += 1
 			for w in s:
 				if w not in stops and w not in punc:
 					vocab[w] = vocab.get(w, 0) + 1
 
 	#remove items occuring less than n times
 	cut_vocab = {k:v for k,v in vocab.items() if v >= n}
+	print len(vocab), len(cut_vocab)
 	#turn counts into feature indices 
 	for i, item in enumerate(cut_vocab):
 		cut_vocab[item] = i
 	
-	return cut_vocab, total_sentences
+	return cut_vocab #, total_sentences
 
 def make_clusters(word_sense_clusters, wev, clustering, n=3):
 	#print "Clustering word vectors..."
@@ -133,11 +137,32 @@ def determine_sense(sent, word_vecs, word_sense_clusters, word_svds):
 
 	return new_sent
 
+def refine_senses(model):
+	model = Word2Vec.load(model)
+
 
 if __name__ == '__main__':
 	indir = sys.argv[1]
 	outdir = sys.argv[2]
-	model_dir = sys.argv[3]
+	word_list_file = sys.argv[3]
+	model_dir = sys.argv[4]
 
-	main(indir, outdir, model_dir, clustering='kmeans')
+	main(indir, outdir, word_list_file, model_dir, clustering='kmeans')
+
+
+
+	def senses(model, word, n):
+		try:
+			print model.most_similar(word)
+			print
+		except (KeyError):
+			pass
+		
+		for i in range(n):
+			sense = word+str(i)
+			try:
+				print model.most_similar(sense), i
+				print
+			except (KeyError):
+				pass
 
