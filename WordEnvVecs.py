@@ -2,8 +2,10 @@
 
 import os
 import sys
+import gzip
 import nltk
 import string
+import numpy as np
 from nltk.corpus import stopwords
 from collections import defaultdict
 from nltk.tokenize import sent_tokenize, word_tokenize
@@ -21,8 +23,9 @@ class WordEnvironmentVectors(object):
 	wev.save_vecs(file)
 	"""
 
-	def __init__(self, word_list, vocab=None, window_size=5):
+	def __init__(self, word_list, vec_files_path, vocab=None, window_size=5):
 		#https://en.wiktionary.org/wiki/Appendix:Basic_English_word_list
+		self.vec_files_path = vec_files_path
 		self.words = word_list
 		self.vocab = vocab
 		self.window_size = window_size
@@ -95,19 +98,21 @@ class WordEnvironmentVectors(object):
 		for s in word_vecs:
 			for word, vec in s:
 				if vec is not None:
-					self.word_vectors[word].append(vec)
+					if word not in self.word_vectors:
+						self.word_vectors[word] = os.path.join(self.vec_files_path, word + '.txt')
+						with open(self.word_vectors[word], 'w') as vec_file:
+							vec_file.write(' '.join(str(x) for x in vec) + '\n')
+					else:
+						with open(self.word_vectors[word], 'a') as vec_file:
+								vec_file.write(' '.join(str(x) for x in vec) + '\n')
 
-	"""
-	# Following functions needed before I preprocessed to get vocabulary
-	def pad_vecs(self):
-		#pad vectors so they have an index for each feature for clustering
-			for word in self.word_vectors:
-				for i, vec in enumerate(self.word_vectors[word]):
-					self.word_vectors[word][i] = self.pad(vec, len(self.features), 0)
-
-	def pad(self, l, size, padding):
-		return l + [padding] * abs((len(l)-size))
-	"""
+	def get_vecs(self, word):
+		vecs = []
+		with open(self.word_vectors[word], 'r') as vec_file:
+			for line in vec_file:
+				if line.split():
+					vecs.append([int(x) for x in line.split()])
+		return np.array(vecs)
 
 	def create(self, filename):
 		vecs = self.create_vectors(filename)
